@@ -43,15 +43,19 @@ Those commands are only for contributors who want to modify the source code.
 
 ## Install For Obsidian Users
 
-1. Download this repository as a ZIP, or download a packaged release if one is available.
+Preferred:
+Download the packaged ZIP from [Releases](https://github.com/cfsheep/codexdian/releases).
+
+1. Download the latest packaged release ZIP.
 2. Create this folder inside your vault:
    `.obsidian/plugins/codexdian`
-3. Copy these built plugin files into that folder:
+3. Extract the `codexdian` folder from the ZIP into that location, or copy these files into that folder:
    `manifest.json`, `main.js`, `styles.css`
 4. Open Obsidian.
 5. Turn off Safe Mode if needed, then enable `Codexdian` in `Settings -> Community plugins`.
 
-If you downloaded the whole repository ZIP, you can simply move the built files above into `.obsidian/plugins/codexdian`.
+Fallback:
+If you downloaded the whole repository ZIP instead of a release, move the built files above into `.obsidian/plugins/codexdian`.
 
 ## First-Time Codex CLI Setup
 
