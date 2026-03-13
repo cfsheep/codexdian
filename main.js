@@ -34,462 +34,13 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 
-// node_modules/@openai/codex-sdk/dist/index.js
-var import_fs = require("fs");
-var import_os = __toESM(require("os"), 1);
-var import_path = __toESM(require("path"), 1);
-var import_child_process = require("child_process");
-var import_path2 = __toESM(require("path"), 1);
-var import_readline = __toESM(require("readline"), 1);
-var import_module = require("module");
-var import_meta = { url: typeof __filename !== "undefined" ? require("url").pathToFileURL(__filename).href : "file:///dummy" };
-async function createOutputSchemaFile(schema) {
-  if (schema === void 0) {
-    return { cleanup: async () => {
-    } };
-  }
-  if (!isJsonObject(schema)) {
-    throw new Error("outputSchema must be a plain JSON object");
-  }
-  const schemaDir = await import_fs.promises.mkdtemp(import_path.default.join(import_os.default.tmpdir(), "codex-output-schema-"));
-  const schemaPath = import_path.default.join(schemaDir, "schema.json");
-  const cleanup = async () => {
-    try {
-      await import_fs.promises.rm(schemaDir, { recursive: true, force: true });
-    } catch {
-    }
-  };
-  try {
-    await import_fs.promises.writeFile(schemaPath, JSON.stringify(schema), "utf8");
-    return { schemaPath, cleanup };
-  } catch (error) {
-    await cleanup();
-    throw error;
-  }
-}
-function isJsonObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var Thread = class {
-  _exec;
-  _options;
-  _id;
-  _threadOptions;
-  /** Returns the ID of the thread. Populated after the first turn starts. */
-  get id() {
-    return this._id;
-  }
-  /* @internal */
-  constructor(exec, options, threadOptions, id = null) {
-    this._exec = exec;
-    this._options = options;
-    this._id = id;
-    this._threadOptions = threadOptions;
-  }
-  /** Provides the input to the agent and streams events as they are produced during the turn. */
-  async runStreamed(input, turnOptions = {}) {
-    return { events: this.runStreamedInternal(input, turnOptions) };
-  }
-  async *runStreamedInternal(input, turnOptions = {}) {
-    const { schemaPath, cleanup } = await createOutputSchemaFile(turnOptions.outputSchema);
-    const options = this._threadOptions;
-    const { prompt, images } = normalizeInput(input);
-    const generator = this._exec.run({
-      input: prompt,
-      baseUrl: this._options.baseUrl,
-      apiKey: this._options.apiKey,
-      threadId: this._id,
-      images,
-      model: options?.model,
-      sandboxMode: options?.sandboxMode,
-      workingDirectory: options?.workingDirectory,
-      skipGitRepoCheck: options?.skipGitRepoCheck,
-      outputSchemaFile: schemaPath,
-      modelReasoningEffort: options?.modelReasoningEffort,
-      signal: turnOptions.signal,
-      networkAccessEnabled: options?.networkAccessEnabled,
-      webSearchMode: options?.webSearchMode,
-      webSearchEnabled: options?.webSearchEnabled,
-      approvalPolicy: options?.approvalPolicy,
-      additionalDirectories: options?.additionalDirectories
-    });
-    try {
-      for await (const item of generator) {
-        let parsed;
-        try {
-          parsed = JSON.parse(item);
-        } catch (error) {
-          throw new Error(`Failed to parse item: ${item}`, { cause: error });
-        }
-        if (parsed.type === "thread.started") {
-          this._id = parsed.thread_id;
-        }
-        yield parsed;
-      }
-    } finally {
-      await cleanup();
-    }
-  }
-  /** Provides the input to the agent and returns the completed turn. */
-  async run(input, turnOptions = {}) {
-    const generator = this.runStreamedInternal(input, turnOptions);
-    const items = [];
-    let finalResponse = "";
-    let usage = null;
-    let turnFailure = null;
-    for await (const event of generator) {
-      if (event.type === "item.completed") {
-        if (event.item.type === "agent_message") {
-          finalResponse = event.item.text;
-        }
-        items.push(event.item);
-      } else if (event.type === "turn.completed") {
-        usage = event.usage;
-      } else if (event.type === "turn.failed") {
-        turnFailure = event.error;
-        break;
-      }
-    }
-    if (turnFailure) {
-      throw new Error(turnFailure.message);
-    }
-    return { items, finalResponse, usage };
-  }
-};
-function normalizeInput(input) {
-  if (typeof input === "string") {
-    return { prompt: input, images: [] };
-  }
-  const promptParts = [];
-  const images = [];
-  for (const item of input) {
-    if (item.type === "text") {
-      promptParts.push(item.text);
-    } else if (item.type === "local_image") {
-      images.push(item.path);
-    }
-  }
-  return { prompt: promptParts.join("\n\n"), images };
-}
-var INTERNAL_ORIGINATOR_ENV = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
-var TYPESCRIPT_SDK_ORIGINATOR = "codex_sdk_ts";
-var CODEX_NPM_NAME = "@openai/codex";
-var PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64"
-};
-var moduleRequire = (0, import_module.createRequire)(import_meta.url);
-var CodexExec = class {
-  executablePath;
-  envOverride;
-  configOverrides;
-  constructor(executablePath = null, env, configOverrides) {
-    this.executablePath = executablePath || findCodexPath();
-    this.envOverride = env;
-    this.configOverrides = configOverrides;
-  }
-  async *run(args) {
-    const commandArgs = ["exec", "--experimental-json"];
-    if (this.configOverrides) {
-      for (const override of serializeConfigOverrides(this.configOverrides)) {
-        commandArgs.push("--config", override);
-      }
-    }
-    if (args.model) {
-      commandArgs.push("--model", args.model);
-    }
-    if (args.sandboxMode) {
-      commandArgs.push("--sandbox", args.sandboxMode);
-    }
-    if (args.workingDirectory) {
-      commandArgs.push("--cd", args.workingDirectory);
-    }
-    if (args.additionalDirectories?.length) {
-      for (const dir of args.additionalDirectories) {
-        commandArgs.push("--add-dir", dir);
-      }
-    }
-    if (args.skipGitRepoCheck) {
-      commandArgs.push("--skip-git-repo-check");
-    }
-    if (args.outputSchemaFile) {
-      commandArgs.push("--output-schema", args.outputSchemaFile);
-    }
-    if (args.modelReasoningEffort) {
-      commandArgs.push("--config", `model_reasoning_effort="${args.modelReasoningEffort}"`);
-    }
-    if (args.networkAccessEnabled !== void 0) {
-      commandArgs.push(
-        "--config",
-        `sandbox_workspace_write.network_access=${args.networkAccessEnabled}`
-      );
-    }
-    if (args.webSearchMode) {
-      commandArgs.push("--config", `web_search="${args.webSearchMode}"`);
-    } else if (args.webSearchEnabled === true) {
-      commandArgs.push("--config", `web_search="live"`);
-    } else if (args.webSearchEnabled === false) {
-      commandArgs.push("--config", `web_search="disabled"`);
-    }
-    if (args.approvalPolicy) {
-      commandArgs.push("--config", `approval_policy="${args.approvalPolicy}"`);
-    }
-    if (args.threadId) {
-      commandArgs.push("resume", args.threadId);
-    }
-    if (args.images?.length) {
-      for (const image of args.images) {
-        commandArgs.push("--image", image);
-      }
-    }
-    const env = {};
-    if (this.envOverride) {
-      Object.assign(env, this.envOverride);
-    } else {
-      for (const [key, value] of Object.entries(process.env)) {
-        if (value !== void 0) {
-          env[key] = value;
-        }
-      }
-    }
-    if (!env[INTERNAL_ORIGINATOR_ENV]) {
-      env[INTERNAL_ORIGINATOR_ENV] = TYPESCRIPT_SDK_ORIGINATOR;
-    }
-    if (args.baseUrl) {
-      env.OPENAI_BASE_URL = args.baseUrl;
-    }
-    if (args.apiKey) {
-      env.CODEX_API_KEY = args.apiKey;
-    }
-    const child = (0, import_child_process.spawn)(this.executablePath, commandArgs, {
-      env,
-      signal: args.signal
-    });
-    let spawnError = null;
-    child.once("error", (err) => spawnError = err);
-    if (!child.stdin) {
-      child.kill();
-      throw new Error("Child process has no stdin");
-    }
-    child.stdin.write(args.input);
-    child.stdin.end();
-    if (!child.stdout) {
-      child.kill();
-      throw new Error("Child process has no stdout");
-    }
-    const stderrChunks = [];
-    if (child.stderr) {
-      child.stderr.on("data", (data) => {
-        stderrChunks.push(data);
-      });
-    }
-    const exitPromise = new Promise(
-      (resolve) => {
-        child.once("exit", (code, signal) => {
-          resolve({ code, signal });
-        });
-      }
-    );
-    const rl = import_readline.default.createInterface({
-      input: child.stdout,
-      crlfDelay: Infinity
-    });
-    try {
-      for await (const line of rl) {
-        yield line;
-      }
-      if (spawnError) throw spawnError;
-      const { code, signal } = await exitPromise;
-      if (code !== 0 || signal) {
-        const stderrBuffer = Buffer.concat(stderrChunks);
-        const detail = signal ? `signal ${signal}` : `code ${code ?? 1}`;
-        throw new Error(`Codex Exec exited with ${detail}: ${stderrBuffer.toString("utf8")}`);
-      }
-    } finally {
-      rl.close();
-      child.removeAllListeners();
-      try {
-        if (!child.killed) child.kill();
-      } catch {
-      }
-    }
-  }
-};
-function serializeConfigOverrides(configOverrides) {
-  const overrides = [];
-  flattenConfigOverrides(configOverrides, "", overrides);
-  return overrides;
-}
-function flattenConfigOverrides(value, prefix, overrides) {
-  if (!isPlainObject(value)) {
-    if (prefix) {
-      overrides.push(`${prefix}=${toTomlValue(value, prefix)}`);
-      return;
-    } else {
-      throw new Error("Codex config overrides must be a plain object");
-    }
-  }
-  const entries = Object.entries(value);
-  if (!prefix && entries.length === 0) {
-    return;
-  }
-  if (prefix && entries.length === 0) {
-    overrides.push(`${prefix}={}`);
-    return;
-  }
-  for (const [key, child] of entries) {
-    if (!key) {
-      throw new Error("Codex config override keys must be non-empty strings");
-    }
-    if (child === void 0) {
-      continue;
-    }
-    const path3 = prefix ? `${prefix}.${key}` : key;
-    if (isPlainObject(child)) {
-      flattenConfigOverrides(child, path3, overrides);
-    } else {
-      overrides.push(`${path3}=${toTomlValue(child, path3)}`);
-    }
-  }
-}
-function toTomlValue(value, path3) {
-  if (typeof value === "string") {
-    return JSON.stringify(value);
-  } else if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error(`Codex config override at ${path3} must be a finite number`);
-    }
-    return `${value}`;
-  } else if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  } else if (Array.isArray(value)) {
-    const rendered = value.map((item, index) => toTomlValue(item, `${path3}[${index}]`));
-    return `[${rendered.join(", ")}]`;
-  } else if (isPlainObject(value)) {
-    const parts = [];
-    for (const [key, child] of Object.entries(value)) {
-      if (!key) {
-        throw new Error("Codex config override keys must be non-empty strings");
-      }
-      if (child === void 0) {
-        continue;
-      }
-      parts.push(`${formatTomlKey(key)} = ${toTomlValue(child, `${path3}.${key}`)}`);
-    }
-    return `{${parts.join(", ")}}`;
-  } else if (value === null) {
-    throw new Error(`Codex config override at ${path3} cannot be null`);
-  } else {
-    const typeName = typeof value;
-    throw new Error(`Unsupported Codex config override value at ${path3}: ${typeName}`);
-  }
-}
-var TOML_BARE_KEY = /^[A-Za-z0-9_-]+$/;
-function formatTomlKey(key) {
-  return TOML_BARE_KEY.test(key) ? key : JSON.stringify(key);
-}
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function findCodexPath() {
-  const { platform, arch } = process;
-  let targetTriple = null;
-  switch (platform) {
-    case "linux":
-    case "android":
-      switch (arch) {
-        case "x64":
-          targetTriple = "x86_64-unknown-linux-musl";
-          break;
-        case "arm64":
-          targetTriple = "aarch64-unknown-linux-musl";
-          break;
-        default:
-          break;
-      }
-      break;
-    case "darwin":
-      switch (arch) {
-        case "x64":
-          targetTriple = "x86_64-apple-darwin";
-          break;
-        case "arm64":
-          targetTriple = "aarch64-apple-darwin";
-          break;
-        default:
-          break;
-      }
-      break;
-    case "win32":
-      switch (arch) {
-        case "x64":
-          targetTriple = "x86_64-pc-windows-msvc";
-          break;
-        case "arm64":
-          targetTriple = "aarch64-pc-windows-msvc";
-          break;
-        default:
-          break;
-      }
-      break;
-    default:
-      break;
-  }
-  if (!targetTriple) {
-    throw new Error(`Unsupported platform: ${platform} (${arch})`);
-  }
-  const platformPackage = PLATFORM_PACKAGE_BY_TARGET[targetTriple];
-  if (!platformPackage) {
-    throw new Error(`Unsupported target triple: ${targetTriple}`);
-  }
-  let vendorRoot;
-  try {
-    const codexPackageJsonPath = moduleRequire.resolve(`${CODEX_NPM_NAME}/package.json`);
-    const codexRequire = (0, import_module.createRequire)(codexPackageJsonPath);
-    const platformPackageJsonPath = codexRequire.resolve(`${platformPackage}/package.json`);
-    vendorRoot = import_path2.default.join(import_path2.default.dirname(platformPackageJsonPath), "vendor");
-  } catch {
-    throw new Error(
-      `Unable to locate Codex CLI binaries. Ensure ${CODEX_NPM_NAME} is installed with optional dependencies.`
-    );
-  }
-  const archRoot = import_path2.default.join(vendorRoot, targetTriple);
-  const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
-  const binaryPath = import_path2.default.join(archRoot, "codex", codexBinaryName);
-  return binaryPath;
-}
-var Codex = class {
-  exec;
-  options;
-  constructor(options = {}) {
-    const { codexPathOverride, env, config } = options;
-    this.exec = new CodexExec(codexPathOverride, env, config);
-    this.options = options;
-  }
-  /**
-   * Starts a new conversation with an agent.
-   * @returns A new thread instance.
-   */
-  startThread(options = {}) {
-    return new Thread(this.exec, this.options, options);
-  }
-  /**
-   * Resumes a conversation with an agent based on the thread id.
-   * Threads are persisted in ~/.codex/sessions.
-   *
-   * @param id The id of the thread to resume.
-   * @returns A new thread instance.
-   */
-  resumeThread(id, options = {}) {
-    return new Thread(this.exec, this.options, options, id);
-  }
-};
-
 // src/service.ts
+var import_node_child_process = require("child_process");
+var import_node_fs = require("fs");
+var import_node_path = __toESM(require("path"));
+var import_node_readline = __toESM(require("readline"));
+var INTERNAL_ORIGINATOR_ENV = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
+var CODEXDIAN_ORIGINATOR = "codexdian_obsidian";
 function parseEnvVars(text) {
   const env = {};
   for (const line of text.split("\n")) {
@@ -540,11 +91,110 @@ function buildInstructionBlock(settings) {
   }
   return ["<codexdian_instructions>", ...lines, "</codexdian_instructions>"].join("\n");
 }
+function normalizeCliPath(rawPath) {
+  const trimmed = rawPath.trim();
+  return trimmed ? trimmed : null;
+}
+function toResolvedCodexCommand(command) {
+  if (process.platform !== "win32") {
+    return {
+      executable: command,
+      preArgs: [],
+      useShell: false,
+      displayPath: command
+    };
+  }
+  const lower = command.toLowerCase();
+  if (lower.endsWith(".exe")) {
+    return {
+      executable: command,
+      preArgs: [],
+      useShell: false,
+      displayPath: command
+    };
+  }
+  return {
+    executable: command,
+    preArgs: [],
+    useShell: true,
+    displayPath: command
+  };
+}
+function findExecutableInPath(...names) {
+  const envPath = process.env.PATH;
+  if (!envPath) return null;
+  const pathEntries = envPath.split(import_node_path.default.delimiter).map((entry) => entry.trim()).filter(Boolean);
+  for (const entry of pathEntries) {
+    for (const name of names) {
+      const candidate = import_node_path.default.join(entry, name);
+      if ((0, import_node_fs.existsSync)(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+function detectWindowsNpmCodexScript() {
+  const appData = process.env.APPDATA;
+  if (!appData) return null;
+  const codexScript = import_node_path.default.join(appData, "npm", "node_modules", "@openai", "codex", "bin", "codex.js");
+  if (!(0, import_node_fs.existsSync)(codexScript)) {
+    return null;
+  }
+  const nodeExecutable = findExecutableInPath("node.exe", "node");
+  if (!nodeExecutable) {
+    return null;
+  }
+  return {
+    executable: nodeExecutable,
+    preArgs: [codexScript],
+    useShell: false,
+    displayPath: `${nodeExecutable} ${codexScript}`
+  };
+}
+function detectCodexCommandFromEnv() {
+  const envPath = process.env.PATH;
+  if (!envPath) return null;
+  const pathEntries = envPath.split(import_node_path.default.delimiter).map((entry) => entry.trim()).filter(Boolean);
+  if (process.platform === "win32") {
+    for (const entry of pathEntries) {
+      const exePath = import_node_path.default.join(entry, "codex.exe");
+      if ((0, import_node_fs.existsSync)(exePath)) {
+        return toResolvedCodexCommand(exePath);
+      }
+    }
+    const npmCodex = detectWindowsNpmCodexScript();
+    if (npmCodex) {
+      return npmCodex;
+    }
+    for (const entry of pathEntries) {
+      for (const candidate of ["codex.cmd", "codex.bat", "codex.ps1", "codex"]) {
+        if ((0, import_node_fs.existsSync)(import_node_path.default.join(entry, candidate))) {
+          return toResolvedCodexCommand("codex");
+        }
+      }
+    }
+    return null;
+  }
+  for (const entry of pathEntries) {
+    const candidate = import_node_path.default.join(entry, "codex");
+    if ((0, import_node_fs.existsSync)(candidate)) {
+      return toResolvedCodexCommand(candidate);
+    }
+  }
+  return null;
+}
+function resolveCodexCommand(rawPath) {
+  const customPath = normalizeCliPath(rawPath);
+  if (customPath) {
+    return toResolvedCodexCommand(customPath);
+  }
+  return detectCodexCommandFromEnv();
+}
 var CodexService = class {
-  codex = null;
-  thread = null;
   vaultPath;
   settings;
+  command = null;
   _isStreaming = false;
   abortController = null;
   threadId = null;
@@ -565,45 +215,37 @@ var CodexService = class {
     this.initCodex();
   }
   initCodex() {
-    const customEnv = parseEnvVars(this.settings.environmentVariables);
-    const options = {};
-    if (this.settings.codexCliPath) {
-      options.codexPathOverride = this.settings.codexCliPath;
-    }
-    if (Object.keys(customEnv).length > 0) {
-      options.env = {
-        ...process.env,
-        ...customEnv
-      };
-    }
-    this.codex = new Codex(options);
-    this.thread = null;
+    this.command = resolveCodexCommand(this.settings.codexCliPath);
     this.threadId = null;
     this.instructionsInjected = false;
   }
-  /** Build thread options from current settings. */
-  buildThreadOptions() {
-    const opts = {
-      model: this.settings.model,
-      workingDirectory: this.vaultPath,
-      skipGitRepoCheck: true,
-      approvalPolicy: mapApprovalPolicy(this.settings.permissionMode)
-    };
+  ensureCodexCommand() {
+    if (!this.command) {
+      this.command = resolveCodexCommand(this.settings.codexCliPath);
+    }
+    if (!this.command) {
+      throw new Error(
+        'Unable to find a usable Codex CLI. Make sure `codex` works in your terminal, or set "Codex CLI path" in plugin settings.'
+      );
+    }
+    return this.command;
+  }
+  buildCommandArgs() {
+    const args = ["exec", "--experimental-json"];
+    if (this.settings.model) {
+      args.push("--model", this.settings.model);
+    }
+    args.push("--cd", this.vaultPath);
+    args.push("--skip-git-repo-check");
     const effort = mapReasoningEffort(this.settings.thinkingLevel);
     if (effort) {
-      opts.modelReasoningEffort = effort;
+      args.push("--config", `model_reasoning_effort="${effort}"`);
     }
-    return opts;
-  }
-  /** Ensure we have an active thread, creating one if needed. */
-  ensureThread() {
-    if (!this.codex) {
-      this.initCodex();
+    args.push("--config", `approval_policy="${mapApprovalPolicy(this.settings.permissionMode)}"`);
+    if (this.threadId) {
+      args.push("resume", this.threadId);
     }
-    if (!this.thread) {
-      this.thread = this.codex.startThread(this.buildThreadOptions());
-    }
-    return this.thread;
+    return args;
   }
   preparePrompt(prompt) {
     const trimmedPrompt = prompt.trim();
@@ -622,20 +264,14 @@ var CodexService = class {
 
 ${trimmedPrompt}`;
   }
-  /** Start a new conversation (reset the thread). */
   newConversation() {
-    this.thread = null;
     this.threadId = null;
     this.instructionsInjected = false;
   }
-  /** Resume a thread by ID. */
   resumeThread(threadId) {
-    if (!this.codex) this.initCodex();
-    this.thread = this.codex.resumeThread(threadId, this.buildThreadOptions());
     this.threadId = threadId;
     this.instructionsInjected = true;
   }
-  /** Send a user message and stream back events. */
   async query(prompt, onEvent) {
     if (this._isStreaming) {
       onEvent({ type: "error", error: "A query is already in progress" });
@@ -649,38 +285,102 @@ ${trimmedPrompt}`;
     this._isStreaming = true;
     this.abortController = new AbortController();
     try {
-      const thread = this.ensureThread();
-      const { events } = await thread.runStreamed(preparedPrompt, {
-        signal: this.abortController.signal
+      const resolvedCommand = this.ensureCodexCommand();
+      const env = {
+        ...process.env,
+        ...parseEnvVars(this.settings.environmentVariables)
+      };
+      env[INTERNAL_ORIGINATOR_ENV] = CODEXDIAN_ORIGINATOR;
+      const executable = resolvedCommand.executable;
+      const commandArgs = [...resolvedCommand.preArgs, ...this.buildCommandArgs()];
+      const child = (0, import_node_child_process.spawn)(executable, commandArgs, {
+        env,
+        signal: this.abortController.signal,
+        windowsHide: true,
+        shell: resolvedCommand.useShell
       });
-      for await (const event of events) {
-        if (this.abortController?.signal.aborted) break;
-        switch (event.type) {
-          case "thread.started":
-            this.threadId = event.thread_id;
-            onEvent({ type: "thread.started", threadId: event.thread_id });
-            break;
-          case "turn.started":
-            onEvent({ type: "turn.started" });
-            break;
-          case "turn.completed":
-            onEvent({ type: "turn.completed", usage: event.usage });
-            break;
-          case "turn.failed":
-            onEvent({ type: "error", error: event.error.message });
-            break;
-          case "item.started":
-            onEvent({ type: "item.started", item: event.item });
-            break;
-          case "item.updated":
-            onEvent({ type: "item.updated", item: event.item });
-            break;
-          case "item.completed":
-            onEvent({ type: "item.completed", item: event.item });
-            break;
-          case "error":
-            onEvent({ type: "error", error: event.message });
-            break;
+      let spawnError = null;
+      child.once("error", (error) => {
+        spawnError = error;
+      });
+      if (!child.stdin) {
+        child.kill();
+        throw new Error("Child process has no stdin");
+      }
+      child.stdin.write(preparedPrompt);
+      child.stdin.end();
+      if (!child.stdout) {
+        child.kill();
+        throw new Error("Child process has no stdout");
+      }
+      const stderrChunks = [];
+      if (child.stderr) {
+        child.stderr.on("data", (chunk) => {
+          stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+        });
+      }
+      const exitPromise = new Promise((resolve) => {
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      const rl = import_node_readline.default.createInterface({
+        input: child.stdout,
+        crlfDelay: Infinity
+      });
+      try {
+        for await (const line of rl) {
+          if (!line.trim()) {
+            continue;
+          }
+          const event = JSON.parse(line);
+          switch (event.type) {
+            case "thread.started":
+              this.threadId = event.thread_id;
+              onEvent({ type: "thread.started", threadId: event.thread_id });
+              break;
+            case "turn.started":
+              onEvent({ type: "turn.started" });
+              break;
+            case "turn.completed":
+              onEvent({ type: "turn.completed", usage: event.usage });
+              break;
+            case "turn.failed":
+              onEvent({ type: "error", error: event.error.message });
+              break;
+            case "item.started":
+              onEvent({ type: "item.started", item: event.item });
+              break;
+            case "item.updated":
+              onEvent({ type: "item.updated", item: event.item });
+              break;
+            case "item.completed":
+              onEvent({ type: "item.completed", item: event.item });
+              break;
+            case "error":
+              onEvent({ type: "error", error: event.message });
+              break;
+          }
+        }
+        if (spawnError) {
+          throw spawnError;
+        }
+        const { code, signal } = await exitPromise;
+        if (code !== 0 || signal) {
+          const stderrOutput2 = Buffer.concat(stderrChunks).toString("utf8").trim();
+          const detail = signal ? `signal ${signal}` : `code ${code ?? 1}`;
+          throw new Error(stderrOutput2 ? `Codex CLI exited with ${detail}: ${stderrOutput2}` : `Codex CLI exited with ${detail}.`);
+        }
+        const stderrOutput = Buffer.concat(stderrChunks).toString("utf8").trim();
+        if (stderrOutput) {
+          console.warn("Codexdian stderr", stderrOutput);
+        }
+      } finally {
+        rl.close();
+        child.removeAllListeners();
+        if (!child.killed) {
+          try {
+            child.kill();
+          } catch {
+          }
         }
       }
     } catch (err) {
@@ -696,7 +396,6 @@ ${trimmedPrompt}`;
       onEvent({ type: "done" });
     }
   }
-  /** Interrupt / abort the current query. */
   abort() {
     if (this.abortController) {
       this.abortController.abort();
@@ -705,8 +404,7 @@ ${trimmedPrompt}`;
   }
   destroy() {
     this.abort();
-    this.codex = null;
-    this.thread = null;
+    this.command = null;
     this.threadId = null;
     this.instructionsInjected = false;
   }
@@ -1423,6 +1121,20 @@ var CodexdianView = class extends import_obsidian.ItemView {
             if (existing) {
               existing.threadItem = event.item;
               existing.content = this.itemToText(event.item);
+            } else {
+              const msg = {
+                id: genId("msg"),
+                role: event.item.type === "reasoning" ? "assistant" : "tool",
+                content: this.itemToText(event.item),
+                timestamp: Date.now(),
+                isThinking: event.item.type === "reasoning",
+                threadItem: event.item
+              };
+              if (event.item.type === "agent_message") {
+                msg.role = "assistant";
+              }
+              itemMap.set(event.item.id, msg);
+              tab.conversation.messages.push(msg);
             }
             this.renderMessages();
             this.queuePersistState();
@@ -1695,8 +1407,8 @@ var CodexdianSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Codexdian Settings" });
-    new import_obsidian.Setting(containerEl).setName("Codex CLI path").setDesc("Custom path to the codex binary. Leave empty for auto-detection.").addText(
-      (text) => text.setPlaceholder("auto-detect").setValue(this.plugin.settings.codexCliPath).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("Codex CLI path").setDesc('Custom path or command for Codex CLI. Leave empty to auto-detect "codex" from PATH.').addText(
+      (text) => text.setPlaceholder("codex").setValue(this.plugin.settings.codexCliPath).onChange(async (value) => {
         this.plugin.settings.codexCliPath = value;
         await this.plugin.saveSettings();
       })

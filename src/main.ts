@@ -854,6 +854,20 @@ class CodexdianView extends ItemView {
             if (existing) {
               existing.threadItem = event.item;
               existing.content = this.itemToText(event.item);
+            } else {
+              const msg: ChatMessage = {
+                id: genId("msg"),
+                role: event.item.type === "reasoning" ? "assistant" : "tool",
+                content: this.itemToText(event.item),
+                timestamp: Date.now(),
+                isThinking: event.item.type === "reasoning",
+                threadItem: event.item,
+              };
+              if (event.item.type === "agent_message") {
+                msg.role = "assistant";
+              }
+              itemMap.set(event.item.id, msg);
+              tab.conversation.messages.push(msg);
             }
             this.renderMessages();
             this.queuePersistState();
@@ -1169,10 +1183,10 @@ class CodexdianSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Codex CLI path")
-      .setDesc("Custom path to the codex binary. Leave empty for auto-detection.")
+      .setDesc('Custom path or command for Codex CLI. Leave empty to auto-detect "codex" from PATH.')
       .addText((text) =>
         text
-          .setPlaceholder("auto-detect")
+          .setPlaceholder("codex")
           .setValue(this.plugin.settings.codexCliPath)
           .onChange(async (value) => {
             this.plugin.settings.codexCliPath = value;

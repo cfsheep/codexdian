@@ -1,7 +1,7 @@
 {
   "id": "codexdian",
   "name": "Codexdian",
-  "version": "1.3.66",
+  "version": "1.3.67",
   "minAppVersion": "1.4.5",
   "description": "Vault-aware Codex chat for Obsidian with tabs, file edits, reference notes, and YOLO mode.",
   "author": "Yishen Tu",
