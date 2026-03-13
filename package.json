@@ -1,0 +1,22 @@
+{
+  "name": "codexdian",
+  "version": "1.3.66",
+  "description": "Embeds Codex CLI as an AI collaborator in your vault.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "check": "tsc --noEmit"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.21.0",
+    "obsidian": "^1.12.3",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.114.0"
+  }
+}
