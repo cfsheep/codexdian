@@ -1,7 +1,7 @@
 {
   "name": "codexdian",
   "version": "1.3.66",
-  "description": "Run Codex inside Obsidian to chat with your vault, edit files, search notes, and complete multi-step tasks.",
+  "description": "Vault-aware Codex for Obsidian with chat, file edits, reference notes, and multi-step workflows.",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -25,7 +25,12 @@
     "assistant",
     "agent",
     "markdown",
-    "knowledge-base"
+    "knowledge-base",
+    "knowledge-management",
+    "second-brain",
+    "ai-agent",
+    "note-taking",
+    "agentic-workflow"
   ],
   "license": "MIT",
   "devDependencies": {

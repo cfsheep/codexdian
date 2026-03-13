@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and troubleshooting
+    url: https://github.com/cfsheep/codexdian/blob/main/SUPPORT.md
+    about: Read this before opening a bug report.
+  - name: English README
+    url: https://github.com/cfsheep/codexdian/blob/main/README.md
+    about: Installation, quick start, and developer notes.
+  - name: 简体中文说明
+    url: https://github.com/cfsheep/codexdian/blob/main/README.zh-CN.md
+    about: 中文安装说明、排查建议和使用方式。
